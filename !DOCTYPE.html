@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>六年級數學：柱體表面積互動教室</title>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Microsoft JhengHei', sans-serif; background-color: #f4f7f9; }
+        
+        /* 頂部選單 */
+        #menu-container {
+            position: absolute; top: 20px; left: 20px;
+            display: flex; flex-direction: column; gap: 10px; z-index: 100;
+        }
+        .shape-btn {
+            padding: 15px 20px; font-size: 18px; font-weight: bold; cursor: pointer;
+            border: 2px solid #3498db; border-radius: 12px; background: white;
+            color: #3498db; transition: 0.3s; width: 220px; text-align: left;
+        }
+        .shape-btn.active { background: #3498db; color: white; box-shadow: 0 4px 10px rgba(52,152,219,0.4); }
+
+        /* 底部控制條 */
+        #ui-container {
+            position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+            width: 60%; max-width: 500px; background: rgba(255, 255, 255, 0.9);
+            padding: 20px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center;
+        }
+        #unfold-slider { width: 100%; height: 30px; cursor: pointer; }
+        .label { font-size: 22px; font-weight: bold; color: #333; margin-bottom: 10px; display: block; }
+
+        /* 右側計算面板 */
+        #quiz-container {
+            position: absolute; right: 20px; top: 20px;
+            width: 320px; background: white; padding: 25px; border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15); border-top: 12px solid #3498db;
+            display: none; /* 初始隱藏，展開後顯示 */
+            animation: fadeIn 0.5s;
+        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+        
+        h3 { margin-top: 0; color: #2c3e50; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        .quiz-step { margin-bottom: 15px; font-size: 18px; line-height: 1.6; }
+        .quiz-input { width: 70px; font-size: 18px; padding: 5px; border: 2px solid #ddd; border-radius: 8px; text-align: center; }
+        .highlight-blue { color: #3498db; font-weight: bold; }
+        .highlight-orange { color: #f39c12; font-weight: bold; }
+        
+        #check-btn {
+            width: 100%; padding: 12px; background: #2ecc71; color: white;
+            border: none; border-radius: 10px; font-size: 20px; font-weight: bold; cursor: pointer; margin-top: 10px;
+        }
+        #feedback { margin-top: 15px; font-size: 20px; text-align: center; font-weight: bold; min-height: 30px; }
+    </style>
+</head>
+<body>
+
+    <div id="menu-container">
+        <button class="shape-btn active" onclick="switchShape('rectangular')">1. 四角柱 (長方體)</button>
+        <button class="shape-btn" onclick="switchShape('triangular')">2. 三角柱</button>
+        <button class="shape-btn" onclick="switchShape('cylinder')">3. 圓柱</button>
+    </div>
+
+    <div id="quiz-container">
+        <h3 id="quiz-title">表面積計算挑戰</h3>
+        <div class="quiz-step">
+            1. <span class="highlight-blue">底面積</span> (1個) 是多少？<br>
+            <input type="number" id="input-base" class="quiz-input"> cm²
+        </div>
+        <div class="quiz-step">
+            2. <span class="highlight-orange">側面積</span> (大長方形) 是多少？<br>
+            <input type="number" id="input-side" class="quiz-input"> cm²
+        </div>
+        <div class="quiz-step" style="background: #fdf2e9; padding: 10px; border-radius: 10px;">
+            <strong>總表面積公式：</strong><br>
+            ( <span class="highlight-blue">底面積</span> × 2 ) + <span class="highlight-orange">側面積</span>
+        </div>
+        <div class="quiz-step">
+            最後總答案：<br>
+            <input type="number" id="input-total" class="quiz-input" style="width: 120px; font-size: 24px;"> cm²
+        </div>
+        <button id="check-btn" onclick="checkAnswer()">檢查答案</button>
+        <div id="feedback"></div>
+    </div>
+
+    <div id="ui-container">
+        <label class="label">動手拆開柱體：觀察展開圖</label>
+        <input type="range" id="unfold-slider" min="0" max="1" step="0.001" value="0">
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <script>
+        let scene, camera, renderer, controls, shapeGroup;
+        let currentType = 'rectangular';
+
+        // 題目答案設定
+        const questions = {
+            rectangular: { base: 3, side: 21, total: 27, title: "四角柱 (2x1.5x3)" },
+            triangular: { base: 1.7, side: 18, total: 21.4, title: "三角柱 (邊長2, 高3)" },
+            cylinder: { base: 4.3, side: 21.6, total: 30.2, title: "圓柱 (半徑1.2, 高3, π≈3)" }
+        };
+
+        init();
+        animate();
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xe0eaf0);
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(8, 8, 12);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+            let light = new THREE.DirectionalLight(0xffffff, 0.4);
+            light.position.set(10, 20, 10);
+            scene.add(light);
+
+            const grid = new THREE.GridHelper(20, 20, 0xbbbbbb, 0xdddddd);
+            grid.position.y = -1.51;
+            scene.add(grid);
+
+            createShape();
+
+            document.getElementById('unfold-slider').addEventListener('input', (e) => {
+                let p = parseFloat(e.target.value);
+                updateUnfold(p);
+                // 展開超過 95% 顯示題目
+                document.getElementById('quiz-container').style.display = (p > 0.95) ? 'block' : 'none';
+                if (p <= 0.95) document.getElementById('feedback').innerText = ''; 
+            });
+
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+        }
+
+        function switchShape(type) {
+            currentType = type;
+            document.querySelectorAll('.shape-btn').forEach(b => b.classList.remove('active'));
+            event.target.classList.add('active');
+            document.getElementById('unfold-slider').value = 0;
+            document.getElementById('quiz-container').style.display = 'none';
+            document.getElementById('quiz-title').innerText = questions[type].title;
+            // 清空輸入框
+            document.querySelectorAll('.quiz-input').forEach(i => i.value = '');
+            createShape();
+        }
+
+        function createShape() {
+            if (shapeGroup) scene.remove(shapeGroup);
+            shapeGroup = new THREE.Group();
+            scene.add(shapeGroup);
+
+            const h = 3, sideMat = new THREE.MeshPhongMaterial({ color: 0xffa500, side: THREE.DoubleSide }), baseMat = new THREE.MeshPhongMaterial({ color: 0x3498db, side: THREE.DoubleSide });
+
+            if (currentType === 'rectangular') {
+                const w = 2, d = 1.5;
+                const s1 = new THREE.Mesh(new THREE.PlaneGeometry(w, h), sideMat);
+                s1.position.z = d/2; shapeGroup.add(s1);
+                const s2 = createPivotSide(d, h, sideMat, w/2, "right"); s1.add(s2);
+                const s3 = createPivotSide(w, h, sideMat, d, "right"); s2.add(s3);
+                const s4 = createPivotSide(d, h, sideMat, -w/2, "left"); s1.add(s4);
+                const rect = new THREE.PlaneGeometry(w, d); rect.translate(0, d/2, 0);
+                const top = createCapPivot(rect, baseMat, h/2, false); s1.add(top);
+                const bot = createCapPivot(rect, baseMat, -h/2, true); s1.add(bot);
+                s1.userData.pivots = { s2, s3, s4, top, bot };
+            } else if (currentType === 'triangular') {
+                const s = 2, h_tri = s * Math.sqrt(3) / 2;
+                const s1 = new THREE.Mesh(new THREE.PlaneGeometry(s, h), sideMat);
+                s1.position.z = s / (2 * Math.sqrt(3)); shapeGroup.add(s1);
+                const s2 = createPivotSide(s, h, sideMat, s/2, "right"); s1.add(s2);
+                const s3 = createPivotSide(s, h, sideMat, -s/2, "left"); s1.add(s3);
+                const tri = new THREE.Shape(); tri.moveTo(-s/2,0); tri.lineTo(s/2,0); tri.lineTo(0,h_tri); tri.closePath();
+                const top = createCapPivot(new THREE.ShapeGeometry(tri), baseMat, h/2, false); s1.add(top);
+                const bot = createCapPivot(new THREE.ShapeGeometry(tri), baseMat, -h/2, true); s1.add(bot);
+                s1.userData.pivots = { s2, s3, top, bot };
+            } else if (currentType === 'cylinder') {
+                const r = 1.2;
+                const body = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 64, 1, true), sideMat);
+                body.userData = { type: 'cylBody', orig: body.geometry.clone(), r, h };
+                shapeGroup.add(body);
+                const top = new THREE.Mesh(new THREE.CircleGeometry(r, 64), baseMat);
+                const bot = new THREE.Mesh(new THREE.CircleGeometry(r, 64), baseMat);
+                shapeGroup.add(top, bot);
+                body.userData.caps = { top, bot };
+            }
+            updateUnfold(0);
+        }
+
+        function createPivotSide(w, h, mat, posX, dir) {
+            const p = new THREE.Group(); const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
+            m.position.x = (dir === "right") ? w/2 : -w/2; p.add(m); p.position.x = posX; return p;
+        }
+
+        function createCapPivot(geom, mat, posY, isBot) {
+            const p = new THREE.Group(); const m = new THREE.Mesh(geom, mat);
+            if (isBot) m.rotation.x = Math.PI; p.add(m); p.position.set(0, posY, 0); return p;
+        }
+
+        function updateUnfold(p) {
+            if (currentType === 'cylinder') {
+                const body = shapeGroup.children[0]; const { r, h, orig, caps } = body.userData;
+                const pos = body.geometry.attributes.position; const flat = new THREE.PlaneGeometry(r * Math.PI * 2, h, 64, 1);
+                for (let i = 0; i < pos.count; i++) {
+                    pos.setXYZ(i, THREE.MathUtils.lerp(orig.attributes.position.getX(i), flat.attributes.position.getX(i), p),
+                        THREE.MathUtils.lerp(orig.attributes.position.getY(i), flat.attributes.position.getY(i), p),
+                        THREE.MathUtils.lerp(orig.attributes.position.getZ(i), flat.attributes.position.getZ(i), p));
+                }
+                pos.needsUpdate = true;
+                caps.top.rotation.x = -Math.PI/2 * (1-p); caps.top.position.set(0, h/2, -r * p);
+                caps.bot.rotation.x = Math.PI/2 * (1-p); caps.bot.position.set(0, -h/2, -r * p);
+                return;
+            }
+            const s1 = shapeGroup.children[0]; const pvs = s1.userData.pivots;
+            if (currentType === 'triangular') {
+                const angle = (Math.PI * 2/3) * (1-p); pvs.s2.rotation.y = angle; pvs.s3.rotation.y = -angle;
+                pvs.top.rotation.x = -Math.PI/2 * (1-p); pvs.bot.rotation.x = Math.PI/2 * (1-p);
+                s1.position.z = THREE.MathUtils.lerp(1/Math.sqrt(3), 0, p);
+            } else {
+                const angle = (Math.PI / 2) * (1-p); pvs.s2.rotation.y = angle; pvs.s3.rotation.y = angle; pvs.s4.rotation.y = -angle;
+                pvs.top.rotation.x = -Math.PI/2 * (1-p); pvs.bot.rotation.x = Math.PI/2 * (1-p);
+                s1.position.z = THREE.MathUtils.lerp(0.75, 0, p);
+            }
+        }
+
+        function checkAnswer() {
+            const ans = questions[currentType];
+            const uBase = parseFloat(document.getElementById('input-base').value);
+            const uSide = parseFloat(document.getElementById('input-side').value);
+            const uTotal = parseFloat(document.getElementById('input-total').value);
+            const fb = document.getElementById('feedback');
+
+            // 簡單容錯判斷
+            if (Math.abs(uTotal - ans.total) < 0.2) {
+                fb.innerHTML = "🎉 太棒了！計算正確！"; fb.style.color = "#2ecc71";
+            } else {
+                fb.innerHTML = "💡 再檢查一下喔！提示：總面積 = (" + ans.base + " × 2) + " + ans.side;
+                fb.style.color = "#e74c3c";
+            }
+        }
+
+        function animate() { requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); }
+    </script>
+</body>
+</html>
